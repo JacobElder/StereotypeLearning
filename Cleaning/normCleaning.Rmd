@@ -1,0 +1,178 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(pacman)
+p_load(tidyverse, careless, irrNA, scales, scales)
+```
+
+```{r}
+setwd( "/Users/jacobelder/Documents/GitHub/StereotypeLearning")
+latinoRaw <- read.csv("./Data/raw/latinoStereoRaw.csv")
+asianRaw <- read.csv("./Data/raw/asianStereoRaw.csv")
+```
+
+```{r}
+asianRaw <- asianRaw %>% filter(Click..1..for.this.question. == 1 & 
+                      Click..1..for.this.question..1 == 1 & 
+                      Click..2..for.this.question. == 2 & 
+                      Click..2..for.this.question..1 == 2 & 
+                      Click..3..for.this.question. == 3 &
+                      Click..3..for.this.question..1 == 3 &
+                      Click..5..for.this.question. == 5 &
+                      Click..5..for.this.question..1 == 5 &
+                      Click..6..for.this.question. == 6 &
+                      Click..6..for.this.question..1 == 6 &
+                      Click..7..for.this.question. == 7 &
+                      Click..7..for.this.question..1 == 7
+                    )
+
+
+latinoRaw <- latinoRaw %>% filter(Click..1..for.this.question. == 1 & 
+                      Click..1..for.this.question..1 == 1 & 
+                      Click..2..for.this.question. == 2 & 
+                      Click..2..for.this.question..1 == 2 & 
+                      Click..3..for.this.question. == 3 &
+                      Click..3..for.this.question..1 == 3 &
+                      Click..5..for.this.question. == 5 &
+                      Click..5..for.this.question..1 == 5 &
+                      Click..6..for.this.question. == 6 &
+                      Click..6..for.this.question..1 == 6 &
+                      Click..7..for.this.question. == 7 &
+                      Click..7..for.this.question..1 == 7
+                    )
+```
+
+```{r}
+asianRaw[grep(".1",colnames(asianRaw))] <- NULL
+latinoRaw[grep(".1",colnames(latinoRaw))] <- NULL
+asianRaw[grep("Click",colnames(asianRaw))] <- NULL
+latinoRaw[grep("Click",colnames(latinoRaw))] <- NULL
+```
+
+```{r}
+asianWords <- asianRaw %>% select(Accurate:Worrier)
+latinoWords <- latinoRaw %>% select(Accurate:Worrier)
+```
+
+# Careless
+
+```{r}
+careless_irv_asian <- irv(asianWords, split = TRUE, num.split = 8)
+careless_irv_latino <- irv(latinoWords, split = TRUE, num.split = 8)
+
+asianRaw$sketch <- 0
+asianRaw$sketch[which(careless_irv_asian$irvTotal < 1)] <- 1
+
+latinoRaw$sketch <- 0
+latinoRaw$sketch[which(careless_irv_latino$irvTotal < 1)] <- 1
+```
+
+```{r}
+asian_long <- longstring(asianWords)
+boxplot(asian_long, main = "Boxplot of Longstring index")
+asianRaw$sketch[which(asian_long > 30)] <- 1
+
+latino_long <- longstring(latinoWords)
+boxplot(latino_long, main = "Boxplot of Longstring index")
+latinoRaw$sketch[which(latino_long > 30)] <- 1
+```
+
+```{r}
+latinoRaw <- latinoRaw %>% filter(sketch == 0)
+asianRaw <- asianRaw %>% filter(sketch == 0)
+```
+
+# Reselect words after filtering out careless responding
+
+```{r}
+asianWords <- asianRaw %>% select(Accurate:Worrier)
+latinoWords <- latinoRaw %>% select(Accurate:Worrier)
+```
+
+# Calculate reliability
+
+```{r}
+iccNA(t(asianWords))
+iccNA(t(latinoWords))
+```
+
+```{r}
+stereoDf <- data.frame(
+  trait=colnames(asianWords),
+  asianStereo=colMeans(asianWords, na.rm=T),
+  latinoStereo=colMeans(latinoWords,na.rm=T)
+)
+
+stereoDf$trait <- gsub('\\.', '-', stereoDf$trait)
+```
+
+# Rescaling
+
+```{r}
+valence <- c(rep("pos",148),rep("neg",148))
+stereoDf <- cbind(stereoDf, valence)
+
+stereoDf$asianStereoZV[1:148] <- scale(stereoDf$asianStereo[1:148])
+stereoDf$asianStereoZV[149:296] <- scale(stereoDf$asianStereo[149:296])
+
+stereoDf$latinoStereoZV[1:148] <- scale(stereoDf$latinoStereo[1:148])
+stereoDf$latinoStereoZV[149:296] <- scale(stereoDf$latinoStereo[149:296])
+
+stereoDf$asianStereoRS <- rescale(stereoDf$asianStereoZV, to=c(1,7))
+stereoDf$latinoStereoRS <- rescale(stereoDf$latinoStereoZV, to=c(1,7))
+```
+
+```{r}
+setwd("..")
+write.csv(stereoDf, "./Data/cleaned/stereoData.csv", row.names = F)
+```
+
+```{r}
+d <- dist(stereoDf[,2:3])
+fit <- cmdscale(d,eig=TRUE, k=2) # k is the number of dim
+fit # view results
+
+# plot solution
+x <- fit$points[,1]
+y <- fit$points[,2]
+plot(x, y, xlab="Coordinate 1", ylab="Coordinate 2",
+  main="Metric MDS", type="n")
+text(x, y, labels = stereoDf$trait, cex=.7)
+```
+
+```{r}
+library(magrittr)
+library(dplyr)
+library(ggpubr)
+# Cmpute MDS
+mds <- d %>%       
+  cmdscale() %>%
+  as_tibble()
+colnames(mds) <- c("Dim.1", "Dim.2")
+# Plot MDS
+ggscatter(mds, x = "Dim.1", y = "Dim.2", 
+          label = stereoDf$trait,
+          size = .12,
+          repel = TRUE)
+```
+
+```{r}
+# K-means clustering
+clust <- kmeans(mds, 3)$cluster %>%
+  as.factor()
+mds <- mds %>%
+  mutate(groups = clust)
+# Plot and color by groups
+ggscatter(mds, x = "Dim.1", y = "Dim.2", 
+          label = stereoDf$trait,
+          color = "groups",
+          palette = "jco",
+          size = 1, 
+          ellipse = TRUE,
+          ellipse.type = "convex",
+          repel = TRUE)
+```
+
